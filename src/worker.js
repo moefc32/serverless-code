@@ -1,3 +1,7 @@
+import colorPalette from './colorPalette.json' assert { type: 'json' };
+import techStacks from './techStacks.json' assert { type: 'json' };
+import discordServers from './discordServers.json' assert { type: 'json' };
+
 const application = 'Mfc API';
 const contentTypeJson = {
     'Content-Type': 'application/json',
@@ -11,6 +15,46 @@ async function apiFetch(url, options = {}) {
 
     options.headers = { ...defaultHeaders, ...(options.headers || {}) };
     return fetch(url, options);
+}
+
+async function countStatistics(repositories) {
+    const languages = {};
+    const finalData = {
+        labels: [],
+        counts: [],
+        colors: [],
+    }
+
+    try {
+        repositories.forEach(repo => {
+            if (repo.language) {
+                if (languages[repo.language]) {
+                    languages[repo.language]++;
+                } else {
+                    languages[repo.language] = 1;
+                }
+            }
+        });
+
+        const languageLabels = Object.keys(languages);
+        const languageCounts = Object.values(languages);
+        const languageData = languageLabels.map((label, index) => ({
+            label,
+            count: languageCounts[index],
+        }));
+
+        languageData.sort((a, b) => b.count - a.count);
+        finalData.labels = languageData.map(data => data.label);
+        finalData.counts = languageData.map(data => data.count);
+
+        for (const i of finalData.labels) {
+            finalData.colors.push(colorPalette[i.toLocaleLowerCase()] || '#ddccb8');
+        }
+    } catch (e) {
+        console.error('Error occurred when counting statistics!');
+    }
+
+    return finalData;
 }
 
 export default {
@@ -44,11 +88,32 @@ export default {
 
                     const data = await response.json();
                     const result = {
-                        techStacks: [],
+                        techStacks,
                         techLanguages: {},
                         discord: [],
                         github: [],
                     };
+
+                    for (const server of discordServers) {
+                        try {
+                            const response = await apiFetch(
+                                `https://discord.com/api/v10/invites/${server}?with_counts=true`);
+                            const data = await response.json();
+
+                            const serverName = data.guild.name;
+                            const serverMember = data.approximate_member_count;
+                            const serverImage =
+                                `https://cdn.discordapp.com/icons/${data.guild.id}/${data.guild.icon}.png`;
+
+                            result.discord.push({
+                                name: serverName,
+                                member: serverMember,
+                                image: serverImage,
+                            });
+                        } catch (e) {
+                            console.error(`Error occurred when fetching "${server}" Discord server data!`);
+                        }
+                    }
 
                     data?.forEach((item) => {
                         result.github.push({
@@ -59,6 +124,8 @@ export default {
                             url: item.html_url,
                         });
                     });
+
+                    result.techLanguages = await countStatistics(result.github);
 
                     return new Response(JSON.stringify({
                         application,
