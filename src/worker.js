@@ -42,10 +42,12 @@ export default {
                     }
 
                     const data = await response.json();
-                    const result = [];
+                    const result = {
+                        github: [],
+                    };
 
                     data.forEach((item) => {
-                        result.push({
+                        result.github.push({
                             id: item.id,
                             title: item.name,
                             description: item.description,
@@ -54,7 +56,9 @@ export default {
                         });
                     });
 
-                    return new Response(JSON.stringify(result), {
+                    return new Response(JSON.stringify({
+                        data: result,
+                    }), {
                         headers: { 'Content-Type': 'application/json' },
                     });
                 } catch (e) {
