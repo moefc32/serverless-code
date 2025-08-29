@@ -1,3 +1,8 @@
+const application = 'Mfc API';
+const contentTypeJson = {
+    'Content-Type': 'application/json',
+};
+
 async function apiFetch(url, options = {}) {
     const defaultHeaders = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; Win11) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.5993.90 Safari/537.36',
@@ -17,14 +22,16 @@ export default {
 
                     if (!github_id) {
                         return new Response(JSON.stringify({
-                            error: 'Missing environment variable(s)',
+                            application,
+                            message: 'Missing environment variable(s)!',
                         }), {
                             status: 500,
-                            headers: { 'Content-Type': 'application/json' },
+                            headers: contentTypeJson,
                         });
                     }
 
-                    const response = await apiFetch(`https://api.github.com/users/${github_id}/repos`, {
+                    const response = await apiFetch(
+                        `https://api.github.com/users/${github_id}/repos`, {
                         headers: {
                             'Accept': 'application/vnd.github.v3+json',
                         }
@@ -32,21 +39,18 @@ export default {
 
                     if (!response.ok) {
                         const text = await response.text();
-
-                        return new Response(JSON.stringify({
-                            error: `GitHub API returned ${response.status}: ${text}`,
-                        }), {
-                            status: response.status,
-                            headers: { 'Content-Type': 'application/json' },
-                        });
+                        console.error(`GitHub API returned ${behanceResponse.status}: ${text}`);
                     }
 
                     const data = await response.json();
                     const result = {
+                        techStacks: [],
+                        techLanguages: {},
+                        discord: [],
                         github: [],
                     };
 
-                    data.forEach((item) => {
+                    data?.forEach((item) => {
                         result.github.push({
                             id: item.id,
                             title: item.name,
@@ -57,16 +61,19 @@ export default {
                     });
 
                     return new Response(JSON.stringify({
+                        application,
+                        message: 'Fetch data success.',
                         data: result,
                     }), {
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: contentTypeJson,
                     });
                 } catch (e) {
                     return new Response(JSON.stringify({
-                        error: e.message,
+                        application,
+                        message: e.message,
                     }), {
                         status: 500,
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: contentTypeJson,
                     });
                 }
 
@@ -74,9 +81,12 @@ export default {
                 return new Response(null, { status: 204 });
 
             default:
-                return new Response(JSON.stringify({ error: 'Method not allowed' }), {
+                return new Response(JSON.stringify({
+                    application,
+                    message: 'Method not allowed!'
+                }), {
                     status: 405,
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: contentTypeJson,
                 });
         }
     },
