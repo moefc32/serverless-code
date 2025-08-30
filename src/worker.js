@@ -3,9 +3,10 @@ import techStacks from './techStacks.json' assert { type: 'json' };
 import discordServers from './discordServers.json' assert { type: 'json' };
 
 const application = 'Mfc API';
-const contentTypeJson = {
-    'Content-Type': 'application/json',
-};
+const cache = caches.default;
+const cacheDuration = 60 * 60 * 24;
+const cacheControl = { 'Cache-Control': `public, max-age=${cacheDuration}` };
+const contentTypeJson = { 'Content-Type': 'application/json' };
 
 async function apiFetch(url, options = {}) {
     const defaultHeaders = {
@@ -62,6 +63,15 @@ export default {
         switch (request.method) {
             case 'GET':
                 try {
+                    const cachedResponse = await cache.match(request);
+
+                    if (cachedResponse) {
+                        const age = cachedResponse.headers.get('CF-Cache-Age');
+                        if (age !== null && parseInt(age) < cacheDuration) {
+                            return cachedResponse;
+                        }
+                    }
+
                     const github_id = env.CONFIG_GITHUB_ID;
 
                     if (!github_id) {
@@ -81,12 +91,6 @@ export default {
                         }
                     });
 
-                    if (!response.ok) {
-                        const text = await response.text();
-                        console.error(`GitHub API returned ${behanceResponse.status}: ${text}`);
-                    }
-
-                    const data = await response.json();
                     const result = {
                         techStacks,
                         techLanguages: {},
@@ -94,46 +98,69 @@ export default {
                         github: [],
                     };
 
-                    for (const server of discordServers) {
-                        try {
-                            const response = await apiFetch(
-                                `https://discord.com/api/v10/invites/${server}?with_counts=true`);
-                            const data = await response.json();
+                    if (response?.ok) {
+                        const data = await response.json();
 
-                            const serverName = data.guild.name;
-                            const serverMember = data.approximate_member_count;
-                            const serverImage =
-                                `https://cdn.discordapp.com/icons/${data.guild.id}/${data.guild.icon}.png`;
-
-                            result.discord.push({
-                                name: serverName,
-                                member: serverMember,
-                                image: serverImage,
+                        data?.forEach((item) => {
+                            result.github.push({
+                                id: item.id,
+                                title: item.name,
+                                description: item.description,
+                                language: item.language,
+                                url: item.html_url,
                             });
-                        } catch (e) {
-                            console.error(`Error occurred when fetching "${server}" Discord server data!`);
-                        }
+                        });
+
+                        result.techLanguages = await countStatistics(result.github);
+                    } else {
+                        const text = await response.text();
+                        console.error(`GitHub API failed: ${text}`);
                     }
 
-                    data?.forEach((item) => {
-                        result.github.push({
-                            id: item.id,
-                            title: item.name,
-                            description: item.description,
-                            language: item.language,
-                            url: item.html_url,
-                        });
-                    });
+                    const discordData = await Promise.allSettled(
+                        discordServers.map(async (server) => {
+                            try {
+                                const response = await apiFetch(
+                                    `https://discord.com/api/v10/invites/${server}?with_counts=true`
+                                );
 
-                    result.techLanguages = await countStatistics(result.github);
+                                if (!response?.ok) {
+                                    const text = await response.text();
+                                    throw new Error(`Error fetching Discord server "${server}":`, text);
+                                }
 
-                    return new Response(JSON.stringify({
+                                const data = await response.json();
+
+                                return {
+                                    name: data.guild.name,
+                                    member: data.approximate_member_count,
+                                    image:
+                                        `https://cdn.discordapp.com/icons/${data.guild.id}/${data.guild.icon}.png`,
+                                };
+                            } catch (e) {
+                                console.error(e);
+                                return null;
+                            }
+                        })
+                    );
+
+                    result.discord = discordData
+                        .filter((r) => r.status === 'fulfilled')
+                        .map((r) => r.value);
+
+                    const cachedData = new Response(JSON.stringify({
                         application,
                         message: 'Fetch data success.',
                         data: result,
                     }), {
-                        headers: contentTypeJson,
+                        headers: {
+                            ...contentTypeJson,
+                            ...cacheControl,
+                        }
                     });
+
+                    ctx.waitUntil(cache.put(request, cachedData.clone()));
+                    return cachedData;
                 } catch (e) {
                     return new Response(JSON.stringify({
                         application,
@@ -145,6 +172,7 @@ export default {
                 }
 
             case 'DELETE':
+                await cache.delete(request);
                 return new Response(null, { status: 204 });
 
             default:
