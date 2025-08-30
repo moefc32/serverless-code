@@ -1,12 +1,13 @@
-import colorPalette from './colorPalette.json' assert { type: 'json' };
-import techStacks from './techStacks.json' assert { type: 'json' };
-import discordServers from './discordServers.json' assert { type: 'json' };
+import corsHeaders from './corsHeaders.js';
+import responseHelper from './responseHelper.js';
 
-const application = 'Mfc API';
+import colorPalette from './data/colorPalette.js';
+import techStacks from './data/techStacks.js';
+import discordServers from './data/discordServers.js';
+
 const cache = caches.default;
 const cacheDuration = 60 * 60 * 24;
 const cacheControl = { 'Cache-Control': `public, max-age=${cacheDuration}` };
-const contentTypeJson = { 'Content-Type': 'application/json' };
 
 async function apiFetch(url, options = {}) {
     const defaultHeaders = {
@@ -18,42 +19,29 @@ async function apiFetch(url, options = {}) {
     return fetch(url, options);
 }
 
-async function countStatistics(repositories) {
-    const languages = {};
+function countStatistics(repositories) {
     const finalData = {
         labels: [],
         counts: [],
         colors: [],
     }
 
-    try {
-        repositories.forEach(repo => {
-            if (repo.language) {
-                if (languages[repo.language]) {
-                    languages[repo.language]++;
-                } else {
-                    languages[repo.language] = 1;
-                }
-            }
-        });
-
-        const languageLabels = Object.keys(languages);
-        const languageCounts = Object.values(languages);
-        const languageData = languageLabels.map((label, index) => ({
-            label,
-            count: languageCounts[index],
-        }));
-
-        languageData.sort((a, b) => b.count - a.count);
-        finalData.labels = languageData.map(data => data.label);
-        finalData.counts = languageData.map(data => data.count);
-
-        for (const i of finalData.labels) {
-            finalData.colors.push(colorPalette[i.toLocaleLowerCase()] || '#ddccb8');
+    const languages = repositories.reduce((acc, repo) => {
+        if (repo.language) {
+            acc[repo.language] = (acc[repo.language] || 0) + 1;
         }
-    } catch (e) {
-        console.error('Error occurred when counting statistics!');
-    }
+        return acc;
+    }, {});
+
+    const languageData = Object.entries(languages)
+        .map(([label, count]) => ({ label, count }))
+        .sort((a, b) => b.count - a.count);
+
+    finalData.labels = languageData.map(d => d.label);
+    finalData.counts = languageData.map(d => d.count);
+    finalData.colors = finalData.labels.map(
+        (label) => colorPalette[label.toLowerCase()] || '#ddccb8'
+    );
 
     return finalData;
 }
@@ -61,6 +49,9 @@ async function countStatistics(repositories) {
 export default {
     async fetch(request, env, ctx) {
         switch (request.method) {
+            case 'OPTIONS':
+                return new Response(null, { headers: corsHeaders });
+
             case 'GET':
                 try {
                     const cachedResponse = await cache.match(request);
@@ -75,13 +66,9 @@ export default {
                     const github_id = env.CONFIG_GITHUB_ID;
 
                     if (!github_id) {
-                        return new Response(JSON.stringify({
-                            application,
+                        return responseHelper({
                             message: 'Missing environment variable(s)!',
-                        }), {
-                            status: 500,
-                            headers: contentTypeJson,
-                        });
+                        }, 500);
                     }
 
                     const response = await apiFetch(
@@ -111,7 +98,7 @@ export default {
                             });
                         });
 
-                        result.techLanguages = await countStatistics(result.github);
+                        result.techLanguages = countStatistics(result.github);
                     } else {
                         const text = await response.text();
                         console.error(`GitHub API failed: ${text}`);
@@ -144,45 +131,33 @@ export default {
                         })
                     );
 
-                    result.discord = discordData
-                        .filter((r) => r.status === 'fulfilled')
-                        .map((r) => r.value);
+                    result.discord = discordData.flatMap((r) =>
+                        r.status === 'fulfilled' && r.value ? [r.value] : []
+                    );
 
-                    const cachedData = new Response(JSON.stringify({
-                        application,
+                    const cachedData = responseHelper({
                         message: 'Fetch data success.',
                         data: result,
-                    }), {
-                        headers: {
-                            ...contentTypeJson,
-                            ...cacheControl,
-                        }
+                    }, 200, {
+                        ...cacheControl,
                     });
 
                     ctx.waitUntil(cache.put(request, cachedData.clone()));
                     return cachedData;
                 } catch (e) {
-                    return new Response(JSON.stringify({
-                        application,
+                    return responseHelper({
                         message: e.message,
-                    }), {
-                        status: 500,
-                        headers: contentTypeJson,
-                    });
+                    }, 500);
                 }
 
             case 'DELETE':
                 await cache.delete(request);
-                return new Response(null, { status: 204 });
+                return responseHelper(null, 204);
 
             default:
-                return new Response(JSON.stringify({
-                    application,
+                return responseHelper({
                     message: 'Method not allowed!'
-                }), {
-                    status: 405,
-                    headers: contentTypeJson,
-                });
+                }, 405);
         }
     },
 };
