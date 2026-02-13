@@ -45,6 +45,11 @@ export default [
         dark: false,
     },
     {
+        name: 'Astro',
+        color: '#06011a',
+        dark: false,
+    },
+    {
         name: 'MySQL',
         color: '#4479a1',
         dark: false,
