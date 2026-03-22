@@ -1,24 +1,23 @@
 import { Hono } from 'hono';
-
 import corsHeaders from './corsHeaders.js';
-import countStatistics from './countStatistics.js';
-import fetch from './fetch.js'
-import responseHelper from './responseHelper.js';
-import throttleRequests from './throttleRequests.js'
 
-import techStacks from './data/techStacks.js';
-import discordServers from './data/discordServers.js';
+import {
+    baseDuration,
+    cacheControl,
+    getCacheKey,
+} from '../util/cache.js';
+import countStatistics from '../util/countStatistics.js';
+import fetch from '../util/fetch.js'
+import sendResponse from '../util/sendResponse.js';
+import throttleRequests from '../util/throttleRequests.js'
+
+import techStacks from '../data/techStacks.js';
+import discordServers from '../data/discordServers.js';
 
 const app = new Hono();
 
 const cache = caches.default;
-const baseCacheDuration = 60 * 60 * 24;
-const cacheControl = {
-    'Cache-Control': `public, max-age=${baseCacheDuration}, stale-while-revalidate=${baseCacheDuration}`
-}
-const cacheKey = new Request('https://internal/cache/serverless-code', {
-    method: 'GET',
-});
+const cacheKey = getCacheKey('https://internal/cache/serverless-code');
 
 app.options('/', (c) => {
     return new Response(null, { headers: corsHeaders });
@@ -40,7 +39,7 @@ app.get('/', async (c) => {
         const github_key = env.CONFIG_GITHUB_KEY;
 
         if (!github_id || !github_key) {
-            return responseHelper({
+            return sendResponse({
                 message: 'Missing environment variable(s)!',
             }, 500);
         }
@@ -83,8 +82,8 @@ app.get('/', async (c) => {
 
                     result.discord.push(formattedData);
 
-                    const durationSalt = (index % 9) * (60 * 60 * 8);
-                    const discordServerTTL = (baseCacheDuration * 7) + durationSalt;
+                    const durationSalt = (index % 7) * baseDuration;
+                    const discordServerTTL = (baseDuration * 7) + durationSalt;
 
                     await env.KV_CACHE.put(`code:discord:${server}`,
                         JSON.stringify(formattedData), {
@@ -96,7 +95,7 @@ app.get('/', async (c) => {
                     console.error(e);
                     return null;
                 }
-            });
+            }, 1, 1500);
 
         const response = await Promise.allSettled([
             (async () => {
@@ -142,7 +141,7 @@ app.get('/', async (c) => {
                     await env.KV_CACHE.put('code:github', JSON.stringify({
                         github: result.github,
                         techLanguages: result.techLanguages,
-                    }), { expirationTtl: baseCacheDuration });
+                    }), { expirationTtl: baseDuration });
                 } catch (e) {
                     console.error(e);
                     return null;
@@ -151,7 +150,7 @@ app.get('/', async (c) => {
             ...discordPromises,
         ]);
 
-        const cachedData = responseHelper({
+        const cachedData = sendResponse({
             message: 'Fetch data success.',
             data: result,
         }, 200, {
@@ -164,7 +163,7 @@ app.get('/', async (c) => {
 
         return cachedData;
     } catch (e) {
-        return responseHelper({
+        return sendResponse({
             message: e.message,
         }, 500);
     }
@@ -172,11 +171,11 @@ app.get('/', async (c) => {
 
 app.delete('/', async (c) => {
     await cache.delete(cacheKey);
-    return responseHelper(null, 204);
+    return sendResponse(null, 204);
 });
 
 app.all('*', () => {
-    return responseHelper({
+    return sendResponse({
         message: 'Method not allowed!',
     }, 405);
 });

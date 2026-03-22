@@ -1,10 +1,10 @@
-export default async function (items, fn, batchSize = 2, delay = 1000) {
+export default async function (items, fn, batchSize = 3, delay = 1500) {
     const results = [];
 
     for (let i = 0; i < items.length; i += batchSize) {
         const batch = items.slice(i, i + batchSize);
         const batchResults = await Promise.all(
-            batch.map(item => fn(item, i))
+            batch.map((item, index) => fn(item, i + index))
         );
 
         results.push(...batchResults);
