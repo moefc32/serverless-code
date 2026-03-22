@@ -1,30 +1,30 @@
 import { Hono } from 'hono';
 
 import corsHeaders from './corsHeaders.js';
+import countStatistics from './countStatistics.js';
 import fetch from './fetch.js'
 import responseHelper from './responseHelper.js';
 import throttleRequests from './throttleRequests.js'
 
-import countStatistics from './countStatistics.js';
 import techStacks from './data/techStacks.js';
 import discordServers from './data/discordServers.js';
 
 const app = new Hono();
 
 const cache = caches.default;
-const cacheDuration = 60 * 60 * 12;
+const baseCacheDuration = 60 * 60 * 24;
 const cacheControl = {
-    'Cache-Control': `public, max-age=${cacheDuration}, stale-while-revalidate=${cacheDuration}`
+    'Cache-Control': `public, max-age=${baseCacheDuration}, stale-while-revalidate=${baseCacheDuration}`
 }
 const cacheKey = new Request('https://internal/cache/serverless-code', {
     method: 'GET',
 });
 
-app.options('*', (c) => {
+app.options('/', (c) => {
     return new Response(null, { headers: corsHeaders });
 });
 
-app.get('*', async (c) => {
+app.get('/', async (c) => {
     const env = c.env;
     const ctx = c.executionCtx;
 
@@ -52,48 +52,60 @@ app.get('*', async (c) => {
             github: [],
         }
 
-        const discordPromises = await throttleRequests(discordServers, async (server) => {
-            try {
-                const cached = await env.KV_CACHE.get(`code:discord:${server}`);
-                if (cached) return result.discord.push(JSON.parse(cached));
+        const discordPromises =
+            await throttleRequests(discordServers, async (server, index) => {
+                try {
+                    const cached = await env.KV_CACHE
+                        .get(`code:discord:${server}`, { type: 'json' });
 
-                const discordResponse = await fetch(
-                    `https://discord.com/api/v10/invites/${server}?with_counts=true`
-                );
+                    if (cached) {
+                        result.discord.push(cached);
+                        return;
+                    }
 
-                if (!discordResponse?.ok) {
-                    const text = await discordResponse.text();
-                    throw new Error(`Error fetching Discord server "${server}": ${text}`);
+                    const discordResponse = await fetch(
+                        `https://discord.com/api/v10/invites/${server}?with_counts=true`
+                    );
+
+                    if (!discordResponse?.ok) {
+                        const text = await discordResponse.text();
+                        throw new Error(`Error fetching Discord server "${server}": ${text}`);
+                    }
+
+                    const data = await discordResponse.json();
+                    const formattedData = {
+                        name: data.guild.name,
+                        member: data.approximate_member_count,
+                        image: data.guild?.icon
+                            ? `https://cdn.discordapp.com/icons/${data.guild.id}/${data.guild.icon}.png`
+                            : undefined,
+                    };
+
+                    result.discord.push(formattedData);
+
+                    const durationSalt = (index % 9) * (60 * 60 * 8);
+                    const discordServerTTL = (baseCacheDuration * 7) + durationSalt;
+
+                    await env.KV_CACHE.put(`code:discord:${server}`,
+                        JSON.stringify(formattedData), {
+                        expirationTtl: discordServerTTL,
+                    });
+
+                    return formattedData;
+                } catch (e) {
+                    console.error(e);
+                    return null;
                 }
-
-                const data = await discordResponse.json();
-                const formattedData = {
-                    name: data.guild.name,
-                    member: data.approximate_member_count,
-                    image: data.guild?.icon
-                        ? `https://cdn.discordapp.com/icons/${data.guild.id}/${data.guild.icon}.png`
-                        : undefined,
-                };
-
-                result.discord.push(formattedData);
-
-                await env.KV_CACHE.put(`code:discord:${server}`, JSON.stringify(formattedData), {
-                    expirationTtl: cacheDuration,
-                });
-
-                return formattedData;
-            } catch (e) {
-                console.error(e);
-                return null;
-            }
-        });
+            });
 
         const response = await Promise.allSettled([
             (async () => {
                 try {
-                    const cached = await env.KV_CACHE.get(`code:github`);
+                    const cached = await env.KV_CACHE
+                        .get(`code:github`, { type: 'json' });
+
                     if (cached) {
-                        Object.assign(result, JSON.parse(cached));
+                        Object.assign(result, cached);
                         return;
                     }
 
@@ -130,7 +142,7 @@ app.get('*', async (c) => {
                     await env.KV_CACHE.put('code:github', JSON.stringify({
                         github: result.github,
                         techLanguages: result.techLanguages,
-                    }), { expirationTtl: cacheDuration });
+                    }), { expirationTtl: baseCacheDuration });
                 } catch (e) {
                     console.error(e);
                     return null;
@@ -158,7 +170,7 @@ app.get('*', async (c) => {
     }
 });
 
-app.delete('*', async (c) => {
+app.delete('/', async (c) => {
     await cache.delete(cacheKey);
     return responseHelper(null, 204);
 });
@@ -169,4 +181,10 @@ app.all('*', () => {
     }, 405);
 });
 
-export default app;
+export default {
+    fetch: app.fetch,
+    async scheduled(evt, env, ctx) {
+        await app.request('/', {}, env);
+        console.log('Cron job processed.');
+    },
+};

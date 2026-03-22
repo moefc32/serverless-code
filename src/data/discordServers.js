@@ -8,4 +8,6 @@ export default [
     'is-a-dev-830872854677422150',
     'notebooklm',
     'ollama',
+    'google-developer-community-indonesia-875733589554266162',
+    'TCJkMweAqr',
 ];
