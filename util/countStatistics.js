@@ -1,4 +1,4 @@
-import colorPalette from './data/colorPalette.js';
+import colorPalette from '../data/colorPalette.js';
 
 export default function (repositories) {
     const finalData = {

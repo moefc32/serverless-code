@@ -9,5 +9,4 @@ export default [
     'notebooklm',
     'ollama',
     'google-developer-community-indonesia-875733589554266162',
-    'TCJkMweAqr',
 ];
