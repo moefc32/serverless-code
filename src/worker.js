@@ -48,7 +48,10 @@ app.get('/', async (c) => {
             techStacks,
             techLanguages: {},
             discord: [],
-            github: [],
+            github: {
+                repos: [],
+                url: `https://github.com/${github_id}`,
+            },
         }
 
         const discordPromises =
@@ -135,11 +138,14 @@ app.get('/', async (c) => {
                         url: r.html_url,
                     }));
 
-                    result.github = formattedData;
+                    result.github.repos = formattedData;
                     result.techLanguages = countStatistics(formattedData);
 
                     await env.KV_CACHE.put('code:github', JSON.stringify({
-                        github: result.github,
+                        github: {
+                            repos: result.github.repos,
+                            url: result.github.url,
+                        },
                         techLanguages: result.techLanguages,
                     }), { expirationTtl: baseDuration });
                 } catch (e) {
