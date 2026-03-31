@@ -86,7 +86,13 @@ app.get('/', async (c) => {
                     result.discord.push(formattedData);
 
                     const durationSalt = (index % 7) * baseDuration;
-                    const discordServerTTL = (baseDuration * 7) + durationSalt;
+                    const discordServerTTL = (data.approximate_member_count >= 50_000)
+                        ? baseDuration * 28 + durationSalt
+                        : (data.approximate_member_count >= 12_500)
+                            ? baseDuration * 21 + durationSalt
+                            : (data.approximate_member_count >= 2_500)
+                                ? baseDuration * 14 + durationSalt
+                                : baseDuration * 7 + durationSalt
 
                     await env.KV_CACHE.put(`code:discord:${server}`,
                         JSON.stringify(formattedData), {
@@ -153,6 +159,7 @@ app.get('/', async (c) => {
                     return null;
                 }
             })(),
+
             ...discordPromises,
         ]);
 
