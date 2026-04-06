@@ -7,7 +7,17 @@
 		"dev": "wrangler dev",
 		"deploy": "wrangler deploy"
 	},
+	"devDependencies": {
+		"wrangler": "^4.80.0"
+	},
 	"dependencies": {
-		"hono": "^4.12.10"
+		"hono": "^4.12.11"
+	},
+	"pnpm": {
+		"onlyBuiltDependencies": [
+			"esbuild",
+			"sharp",
+			"workerd"
+		]
 	}
 }
