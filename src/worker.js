@@ -8,7 +8,6 @@ import {
 import countStatistics from '../util/countStatistics.js';
 import fetch from '../util/fetch.js';
 import sendResponse from '../util/sendResponse.js';
-import throttleRequests from '../util/throttleRequests.js'
 
 import { getDiscordServers } from './query.js'
 import techStacks from '../data/techStacks.js';
@@ -54,16 +53,34 @@ app.get('/', async (c) => {
             },
         };
 
-        const discordServers = await getDiscordServers(env.D1_DISCORD);
-        result.discord = discordServers.map(({ name, member, image }) => ({
-            name,
-            member,
-            image: image
-                ? `https://cdn.discordapp.com/icons/${image}.png`
-                : undefined,
-        }));
-
         const response = await Promise.allSettled([
+            (async () => {
+                try {
+                    const cached = await env.KV_CACHE
+                        .get(`code:discord`, { type: 'json' });
+
+                    if (cached) {
+                        Object.assign(result, cached);
+                        return;
+                    }
+
+                    const discordServers = await getDiscordServers(env.D1_DISCORD);
+                    result.discord = discordServers.map(({ name, member, image }) => ({
+                        name,
+                        member,
+                        image: image
+                            ? `https://cdn.discordapp.com/icons/${image}.png`
+                            : undefined,
+                    }));
+
+                    await env.KV_CACHE.put('code:discord', JSON.stringify({
+                        discord: result.discord,
+                    }), { expirationTtl: baseDuration });
+                } catch (e) {
+                    console.error(e);
+                    return null;
+                }
+            })(),
             (async () => {
                 try {
                     const cached = await env.KV_CACHE
