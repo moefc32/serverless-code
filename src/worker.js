@@ -57,7 +57,7 @@ app.get('/', async (c) => {
             (async () => {
                 try {
                     const cached = await env.KV_CACHE
-                        .get(`code:discord`, { type: 'json' });
+                        .get('code:discord', { type: 'json' });
 
                     if (cached) {
                         Object.assign(result, cached);
@@ -84,7 +84,7 @@ app.get('/', async (c) => {
             (async () => {
                 try {
                     const cached = await env.KV_CACHE
-                        .get(`code:github`, { type: 'json' });
+                        .get('code:github', { type: 'json' });
 
                     if (cached) {
                         Object.assign(result, cached);
@@ -155,11 +155,20 @@ app.get('/', async (c) => {
 });
 
 app.delete('/', async (c) => {
+    const env = c.env;
+    const kvKeys = [
+        'code:discord',
+        'code:github',
+    ];
     const cacheKey = new Request(c.req.url, {
         method: 'GET',
     });
 
-    await cache.delete(cacheKey);
+    await Promise.allSettled([
+        cache.delete(cacheKey),
+        ...kvKeys.map((item) => env.KV_CACHE.delete(item))
+    ]);
+
     return sendResponse(null, 204);
 });
 
